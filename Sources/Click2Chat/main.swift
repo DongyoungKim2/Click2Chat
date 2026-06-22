@@ -225,7 +225,7 @@ enum VoiceState: Equatable {
     var statusSymbolName: String {
         switch self {
         case .idle:
-            return "message.fill"
+            return "message"
         case .starting, .recovering:
             return "ellipsis.message.fill"
         case .active:
@@ -957,14 +957,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func updateStatusIcon(for state: VoiceState) {
         guard let button = statusItem?.button else { return }
         let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        let image = NSImage(
-            systemSymbolName: state.statusSymbolName,
-            accessibilityDescription: state.title
-        ) ?? NSImage(systemSymbolName: "message.fill", accessibilityDescription: "Click2Chat")
-        image?.isTemplate = true
+        let image: NSImage?
+        if state == .idle {
+            image = heartMessageImage()
+        } else {
+            image = NSImage(
+                systemSymbolName: state.statusSymbolName,
+                accessibilityDescription: state.title
+            )?.withSymbolConfiguration(configuration)
+        }
+        let resolvedImage = image ?? NSImage(systemSymbolName: "message", accessibilityDescription: "Click2Chat")
+        resolvedImage?.isTemplate = true
         button.title = ""
-        button.image = image?.withSymbolConfiguration(configuration)
+        button.image = resolvedImage
         button.imagePosition = .imageOnly
+    }
+
+    private func heartMessageImage() -> NSImage? {
+        let bubbleConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        let heartConfiguration = NSImage.SymbolConfiguration(pointSize: 7, weight: .bold)
+        guard let bubble = NSImage(systemSymbolName: "message", accessibilityDescription: "Click2Chat: 대기")?
+                .withSymbolConfiguration(bubbleConfiguration),
+              let heart = NSImage(systemSymbolName: "heart.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(heartConfiguration) else {
+            return nil
+        }
+
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            bubble.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+            heart.draw(in: NSRect(x: 5.75, y: 6.25, width: 6.5, height: 6.5))
+            return true
+        }
+        image.accessibilityDescription = "Click2Chat: 대기"
+        image.isTemplate = true
+        return image
     }
 
     private func startHIDMonitor() {
