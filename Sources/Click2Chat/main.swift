@@ -218,16 +218,16 @@ enum VoiceState: Equatable {
         }
     }
 
-    var statusIcon: String {
+    var statusSymbolName: String {
         switch self {
         case .idle:
-            return "􀊄"
+            return "message.fill"
         case .starting, .recovering:
-            return "􀖇"
+            return "ellipsis.message.fill"
         case .active:
-            return "􀊰"
+            return "waveform.circle.fill"
         case .error:
-            return "􀇿"
+            return "exclamationmark.triangle.fill"
         }
     }
 }
@@ -790,9 +790,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = VoiceState.idle.statusIcon
         statusItem = item
+        updateStatusIcon(for: .idle)
         updateMenu()
+    }
+
+    private func updateStatusIcon(for state: VoiceState) {
+        guard let button = statusItem?.button else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        let image = NSImage(
+            systemSymbolName: state.statusSymbolName,
+            accessibilityDescription: state.title
+        ) ?? NSImage(systemSymbolName: "message.fill", accessibilityDescription: "Click2Chat")
+        image?.isTemplate = true
+        button.title = ""
+        button.image = image?.withSymbolConfiguration(configuration)
+        button.imagePosition = .imageOnly
     }
 
     private func startHIDMonitor() {
@@ -903,7 +916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     private func updateMenu() {
         guard let statusItem else { return }
-        statusItem.button?.title = state.statusIcon
+        updateStatusIcon(for: state)
         statusItem.button?.toolTip = state.title
 
         let menu = NSMenu()
