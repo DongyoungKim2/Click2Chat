@@ -12,7 +12,6 @@ PLIST="$AGENT_DIR/com.dk.click2chat.plist"
 BIN="$APP_MACOS/Click2Chat"
 SUPPORT_DIR="$HOME/Library/Application Support/Click2Chat"
 CONFIG="$SUPPORT_DIR/config.json"
-ENV_FILE="$SUPPORT_DIR/.env"
 CHROME_PROFILE="$SUPPORT_DIR/ChromeProfile"
 
 cd "$ROOT_DIR"
@@ -22,11 +21,6 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$AGENT_DIR" "$SUPPORT_DIR" "$CHROME_PROF
 cp "$ROOT_DIR/.build/release/Click2Chat" "$BIN"
 cp "$ROOT_DIR/scripts/chrome_voice.mjs" "$APP_RESOURCES/chrome_voice.mjs"
 cp "$ROOT_DIR/Assets/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
-cp "$ROOT_DIR/.env.example" "$APP_RESOURCES/.env.example"
-
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$ROOT_DIR/.env.example" "$ENV_FILE"
-fi
 
 cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,9 +87,6 @@ launchctl kickstart -k "gui/$(id -u)/com.dk.click2chat"
 
 echo "Installed Click2Chat."
 echo "App bundle: $APP_BUNDLE"
-echo "Environment: $ENV_FILE"
-if [[ -f "$CONFIG" ]]; then
-  echo "Legacy config fallback detected: $CONFIG"
-fi
-echo "Set CLICK2CHAT_PROJECT_URL and device names in .env before relying on the button."
+echo "Settings: use the Settings menu in the Click2Chat menu bar app."
+echo "Config: $CONFIG"
 echo "Grant permissions when prompted: Accessibility, Input Monitoring, Automation for Google Chrome, and Microphone for Chrome."

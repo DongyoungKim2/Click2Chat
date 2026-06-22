@@ -19,7 +19,6 @@ const defaultConfig = {
 };
 
 const configPath = process.env.CLICK2CHAT_CONFIG || join(homedir(), "Library/Application Support/Click2Chat/config.json");
-const environmentPath = process.env.CLICK2CHAT_ENV || join(homedir(), "Library/Application Support/Click2Chat/.env");
 const config = await loadConfig();
 const chromeBin = join(config.chromePath, "Contents/MacOS/Google Chrome");
 const origin = `http://127.0.0.1:${config.remoteDebuggingPort}`;
@@ -204,60 +203,12 @@ async function main() {
 }
 
 async function loadConfig() {
-  let config = { ...defaultConfig };
   try {
     const raw = await readFile(configPath, "utf8");
-    config = { ...config, ...JSON.parse(raw) };
-  } catch {}
-
-  let fileEnvironment = {};
-  try {
-    fileEnvironment = parseDotEnv(await readFile(environmentPath, "utf8"));
-  } catch {}
-
-  return applyEnvironment(config, { ...fileEnvironment, ...process.env });
-}
-
-function parseDotEnv(contents) {
-  const values = {};
-  for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator < 1) continue;
-    const key = line.slice(0, separator).trim();
-    let value = line.slice(separator + 1).trim();
-    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
-      value = value.slice(1, -1);
-    }
-    values[key] = value;
+    return { ...defaultConfig, ...JSON.parse(raw) };
+  } catch {
+    return defaultConfig;
   }
-  return values;
-}
-
-function applyEnvironment(config, environment) {
-  const value = (key) => {
-    const raw = environment[key];
-    return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
-  };
-  const number = (key) => {
-    const raw = value(key);
-    if (raw === undefined) return undefined;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  };
-
-  return {
-    ...config,
-    ...(value("CLICK2CHAT_CHROME_PATH") && { chromePath: value("CLICK2CHAT_CHROME_PATH") }),
-    ...(value("CLICK2CHAT_CHATGPT_URL") && { chatGPTURL: value("CLICK2CHAT_CHATGPT_URL") }),
-    ...(value("CLICK2CHAT_PROJECT_URL") && { projectURL: value("CLICK2CHAT_PROJECT_URL") }),
-    ...(Object.hasOwn(environment, "CLICK2CHAT_OPENING_PROMPT") && { openingPrompt: environment.CLICK2CHAT_OPENING_PROMPT }),
-    ...(value("CLICK2CHAT_CHROME_PROFILE_DIR") && { chromeProfileDir: value("CLICK2CHAT_CHROME_PROFILE_DIR").replace(/^~/, homedir()) }),
-    ...(number("CLICK2CHAT_REMOTE_DEBUGGING_PORT") !== undefined && { remoteDebuggingPort: number("CLICK2CHAT_REMOTE_DEBUGGING_PORT") }),
-    ...(number("CLICK2CHAT_WEB_LOAD_TIMEOUT") !== undefined && { webLoadTimeout: number("CLICK2CHAT_WEB_LOAD_TIMEOUT") }),
-    ...(number("CLICK2CHAT_WEB_POLL_INTERVAL") !== undefined && { webPollInterval: number("CLICK2CHAT_WEB_POLL_INTERVAL") }),
-  };
 }
 
 async function ensureChrome() {

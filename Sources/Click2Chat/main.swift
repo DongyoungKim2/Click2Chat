@@ -101,22 +101,26 @@ struct AppConfig: Codable, Sendable {
     }
 
     static func loadOrCreate() -> AppConfig {
-        var config = AppConfig()
         try? FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
 
-        if FileManager.default.fileExists(atPath: configURL.path) {
-            if let data = try? Data(contentsOf: configURL),
-               let legacy = try? JSONDecoder().decode(AppConfig.self, from: data) {
-                config = legacy
-            }
+        if let data = try? Data(contentsOf: configURL),
+           let config = try? JSONDecoder().decode(AppConfig.self, from: data) {
+            return config
         }
 
-        let fileEnvironment = DotEnv.load(from: environmentURL)
-        let environment = fileEnvironment.merging(ProcessInfo.processInfo.environment) { _, processValue in
-            processValue
+        var config = AppConfig()
+        let legacyEnvironment = DotEnv.load(from: environmentURL)
+        if !legacyEnvironment.isEmpty {
+            config.apply(environment: legacyEnvironment)
         }
-        config.apply(environment: environment)
+        try? config.save()
         return config
+    }
+
+    func save() throws {
+        try FileManager.default.createDirectory(at: Self.supportDirectory, withIntermediateDirectories: true)
+        let data = try JSONEncoder.pretty.encode(self)
+        try data.write(to: Self.configURL, options: .atomic)
     }
 
     var hasProjectURL: Bool {
@@ -126,17 +130,17 @@ struct AppConfig: Codable, Sendable {
     var validationProblems: [String] {
         var problems: [String] = []
         if !hasProjectURL {
-            problems.append("CLICK2CHAT_PROJECT_URL missing")
+            problems.append("ChatGPT 프로젝트 URL이 없습니다")
         } else if let url = URL(string: projectURL), url.scheme == "https", url.host == "chatgpt.com" {
             // Valid ChatGPT URL.
         } else {
-            problems.append("CLICK2CHAT_PROJECT_URL must be an https://chatgpt.com URL")
+            problems.append("프로젝트 URL은 https://chatgpt.com 주소여야 합니다")
         }
-        if inputDeviceName.isEmpty { problems.append("CLICK2CHAT_INPUT_DEVICE_NAME missing") }
-        if outputDeviceName.isEmpty { problems.append("CLICK2CHAT_OUTPUT_DEVICE_NAME missing") }
-        if buttonNameHints.isEmpty { problems.append("CLICK2CHAT_BUTTON_NAME_HINTS missing") }
+        if inputDeviceName.isEmpty { problems.append("마이크를 선택하지 않았습니다") }
+        if outputDeviceName.isEmpty { problems.append("스피커를 선택하지 않았습니다") }
+        if buttonNameHints.isEmpty { problems.append("버튼 이름을 입력하지 않았습니다") }
         if !(1...65535).contains(remoteDebuggingPort) {
-            problems.append("CLICK2CHAT_REMOTE_DEBUGGING_PORT must be between 1 and 65535")
+            problems.append("Chrome 디버깅 포트는 1~65535여야 합니다")
         }
         return problems
     }
@@ -384,7 +388,7 @@ final class WebChatGPTController: @unchecked Sendable {
             return
         }
         guard config.hasProjectURL else {
-            completion(.failure(RuntimeError("CLICK2CHAT_PROJECT_URL을 설정해야 합니다: \(AppConfig.environmentURL.path)")))
+            completion(.failure(RuntimeError("Settings에서 ChatGPT 프로젝트 URL을 설정해야 합니다.")))
             return
         }
 
@@ -399,9 +403,9 @@ final class WebChatGPTController: @unchecked Sendable {
                     } else if status == "login-required" {
                         completion(.failure(RuntimeError("Click2Chat Chrome 프로필에서 ChatGPT 로그인이 필요합니다.")))
                     } else if status == "project-unavailable" {
-                        completion(.failure(RuntimeError("ChatGPT 프로젝트 URL을 열 수 없습니다. CLICK2CHAT_PROJECT_URL을 확인하세요.")))
+                        completion(.failure(RuntimeError("ChatGPT 프로젝트 URL을 열 수 없습니다. Settings를 확인하세요.")))
                     } else if status == "missing-project-url" {
-                        completion(.failure(RuntimeError("CLICK2CHAT_PROJECT_URL을 설정해야 합니다: \(AppConfig.environmentURL.path)")))
+                        completion(.failure(RuntimeError("Settings에서 ChatGPT 프로젝트 URL을 설정해야 합니다.")))
                     } else if status == "voice-button-missing" {
                         completion(.failure(RuntimeError("ChatGPT 웹 Voice 버튼을 찾지 못했습니다.")))
                     } else if status == "chrome-unreachable" {
@@ -423,7 +427,7 @@ final class WebChatGPTController: @unchecked Sendable {
             return
         }
         guard config.hasProjectURL else {
-            completion(.failure(RuntimeError("CLICK2CHAT_PROJECT_URL을 설정해야 합니다: \(AppConfig.environmentURL.path)")))
+            completion(.failure(RuntimeError("Settings에서 ChatGPT 프로젝트 URL을 설정해야 합니다.")))
             return
         }
 
@@ -438,7 +442,7 @@ final class WebChatGPTController: @unchecked Sendable {
                     } else if status == "login-required" {
                         completion(.failure(RuntimeError("Click2Chat Chrome 프로필에서 ChatGPT 로그인이 필요합니다.")))
                     } else if status == "project-unavailable" {
-                        completion(.failure(RuntimeError("ChatGPT 프로젝트 URL을 열 수 없습니다. CLICK2CHAT_PROJECT_URL을 확인하세요.")))
+                        completion(.failure(RuntimeError("ChatGPT 프로젝트 URL을 열 수 없습니다. Settings를 확인하세요.")))
                     } else if status == "voice-button-missing" {
                         completion(.failure(RuntimeError("ChatGPT 웹 Voice 버튼을 찾지 못했습니다.")))
                     } else {
@@ -480,7 +484,7 @@ final class WebChatGPTController: @unchecked Sendable {
 
     func openProject() -> Result<String, Error> {
         guard config.hasProjectURL else {
-            return .failure(RuntimeError("CLICK2CHAT_PROJECT_URL을 설정해야 합니다: \(AppConfig.environmentURL.path)"))
+            return .failure(RuntimeError("Settings에서 ChatGPT 프로젝트 URL을 설정해야 합니다."))
         }
         return runChromeVoice("open-project")
     }
@@ -499,7 +503,6 @@ final class WebChatGPTController: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: nodePath)
         process.arguments = nodePath == "/usr/bin/env" ? ["node", scriptPath, action] : [scriptPath, action]
         process.environment = ProcessInfo.processInfo.environment.merging([
-            "CLICK2CHAT_ENV": AppConfig.environmentURL.path,
             "CLICK2CHAT_CONFIG": AppConfig.configURL.path
         ]) { current, _ in current }
         let output = Pipe()
@@ -702,10 +705,7 @@ enum Diagnostics {
 
         lines.append("Click2Chat diagnostics")
         lines.append("")
-        lines.append("Environment: \(AppConfig.environmentURL.path)")
-        if FileManager.default.fileExists(atPath: AppConfig.configURL.path) {
-            lines.append("Legacy config fallback: \(AppConfig.configURL.path)")
-        }
+        lines.append("Config: \(AppConfig.configURL.path)")
         lines.append("Project URL: \(config.hasProjectURL ? config.projectURL : "missing")")
         lines.append("Chrome: \(FileManager.default.fileExists(atPath: config.chromePath) ? "installed" : "missing")")
         lines.append("ChatGPT web: \(config.chatGPTURL)")
@@ -762,6 +762,161 @@ enum Diagnostics {
 }
 
 @MainActor
+final class SettingsWindowController: NSWindowController {
+    private let projectURLField = NSTextField()
+    private let openingPromptField = NSTextField()
+    private let inputDeviceField = NSComboBox()
+    private let outputDeviceField = NSComboBox()
+    private let buttonHintsField = NSTextField()
+    private let chromePathField = NSTextField()
+    private let chromeProfileField = NSTextField()
+    private let portField = NSTextField()
+    private let debounceField = NSTextField()
+    private let healthCheckField = NSTextField()
+    private let loadTimeoutField = NSTextField()
+    private let pollIntervalField = NSTextField()
+
+    init(config: AppConfig, audioDeviceNames: [String]) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Click2Chat 설정"
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+
+        projectURLField.stringValue = config.projectURL
+        openingPromptField.stringValue = config.openingPrompt
+        inputDeviceField.addItems(withObjectValues: audioDeviceNames)
+        inputDeviceField.stringValue = config.inputDeviceName
+        outputDeviceField.addItems(withObjectValues: audioDeviceNames)
+        outputDeviceField.stringValue = config.outputDeviceName
+        buttonHintsField.stringValue = config.buttonNameHints.joined(separator: ", ")
+        chromePathField.stringValue = config.chromePath
+        chromeProfileField.stringValue = config.chromeProfileDir
+        portField.stringValue = String(config.remoteDebuggingPort)
+        debounceField.stringValue = String(config.debounceInterval)
+        healthCheckField.stringValue = String(config.healthCheckInterval)
+        loadTimeoutField.stringValue = String(config.webLoadTimeout)
+        pollIntervalField.stringValue = String(config.webPollInterval)
+
+        let rows: [(String, NSView)] = [
+            ("ChatGPT 프로젝트 URL", projectURLField),
+            ("첫 인사", openingPromptField),
+            ("마이크", inputDeviceField),
+            ("스피커", outputDeviceField),
+            ("버튼 이름 (쉼표 구분)", buttonHintsField),
+            ("Chrome 경로", chromePathField),
+            ("Chrome 프로필 경로", chromeProfileField),
+            ("디버깅 포트", portField),
+            ("버튼 입력 간격 (초)", debounceField),
+            ("상태 확인 주기 (초)", healthCheckField),
+            ("웹 로딩 제한 (초)", loadTimeoutField),
+            ("웹 확인 주기 (초)", pollIntervalField)
+        ]
+
+        let grid = NSGridView(views: rows.map { row in
+            let label = NSTextField(labelWithString: row.0)
+            label.alignment = .right
+            return [label, row.1]
+        })
+        grid.rowSpacing = 10
+        grid.columnSpacing = 12
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).xPlacement = .fill
+
+        for field in [projectURLField, openingPromptField, buttonHintsField, chromePathField, chromeProfileField] {
+            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        }
+
+        let help = NSTextField(labelWithString: "저장한 설정은 Click2Chat을 다시 시작하면 적용됩니다.")
+        help.textColor = .secondaryLabelColor
+        let saveButton = NSButton(title: "저장", target: self, action: #selector(saveSettings))
+        saveButton.keyEquivalent = "\r"
+        let cancelButton = NSButton(title: "취소", target: self, action: #selector(closeWindow))
+        let buttons = NSStackView(views: [cancelButton, saveButton])
+        buttons.orientation = .horizontal
+        buttons.alignment = .centerY
+        buttons.spacing = 8
+
+        let footer = NSStackView(views: [help, buttons])
+        footer.orientation = .horizontal
+        footer.distribution = .fill
+        footer.alignment = .centerY
+
+        let content = NSStackView(views: [grid, footer])
+        content.orientation = .vertical
+        content.spacing = 18
+        content.translatesAutoresizingMaskIntoConstraints = false
+        window.contentView = NSView()
+        window.contentView?.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 24),
+            content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -24),
+            content.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 24),
+            content.bottomAnchor.constraint(lessThanOrEqualTo: window.contentView!.bottomAnchor, constant: -20)
+        ])
+        window.center()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func saveSettings() {
+        guard let port = Int(portField.stringValue),
+              let debounce = TimeInterval(debounceField.stringValue),
+              let healthCheck = TimeInterval(healthCheckField.stringValue),
+              let loadTimeout = TimeInterval(loadTimeoutField.stringValue),
+              let pollInterval = TimeInterval(pollIntervalField.stringValue) else {
+            showAlert(message: "숫자 설정을 확인해 주세요.", informativeText: "포트와 시간 값에는 숫자만 입력할 수 있습니다.")
+            return
+        }
+
+        var config = AppConfig.loadOrCreate()
+        config.projectURL = projectURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.openingPrompt = openingPromptField.stringValue
+        config.inputDeviceName = inputDeviceField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.outputDeviceName = outputDeviceField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.buttonNameHints = buttonHintsField.stringValue.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        config.chromePath = chromePathField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.chromeProfileDir = NSString(string: chromeProfileField.stringValue).expandingTildeInPath
+        config.remoteDebuggingPort = port
+        config.debounceInterval = debounce
+        config.healthCheckInterval = healthCheck
+        config.webLoadTimeout = loadTimeout
+        config.webPollInterval = pollInterval
+
+        do {
+            try config.save()
+            let warnings = config.validationProblems
+            let detail = warnings.isEmpty
+                ? "앱을 종료한 뒤 다시 실행하면 새 설정이 적용됩니다."
+                : "저장되었습니다. 다음 항목을 확인해 주세요:\n\n" + warnings.map { "• \($0)" }.joined(separator: "\n")
+            showAlert(message: "설정을 저장했습니다", informativeText: detail)
+            close()
+        } catch {
+            showAlert(message: "설정을 저장하지 못했습니다", informativeText: error.localizedDescription)
+        }
+    }
+
+    @objc private func closeWindow() {
+        close()
+    }
+
+    private func showAlert(message: String, informativeText: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = informativeText
+        alert.runModal()
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private let config = AppConfig.loadOrCreate()
     private let logger = Logger()
@@ -769,6 +924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private lazy var chatGPT = WebChatGPTController(config: config, logger: logger)
     private var hidMonitor: HIDButtonMonitor?
     private var statusItem: NSStatusItem?
+    private var settingsWindowController: SettingsWindowController?
     private var state: VoiceState = .idle {
         didSet {
             logger.write("State changed: \(state.title)")
@@ -781,6 +937,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         setupStatusItem()
         startHIDMonitor()
         runHealthCheck()
+        if CommandLine.arguments.contains("--settings") {
+            menuSettings()
+        }
         Timer.scheduledTimer(withTimeInterval: config.healthCheckInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.runHealthCheck()
@@ -934,6 +1093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         menu.addItem(NSMenuItem(title: "Stop Voice", action: #selector(menuStopVoice), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Open Project", action: #selector(menuOpenProject), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Run Diagnostics", action: #selector(menuRunDiagnostics), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(menuSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(menuQuit), keyEquivalent: "q"))
 
@@ -958,6 +1118,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         case .failure(let error):
             state = .error(error.localizedDescription)
         }
+    }
+
+    @objc private func menuSettings() {
+        let controller = SettingsWindowController(
+            config: AppConfig.loadOrCreate(),
+            audioDeviceNames: audio.allDeviceNames()
+        )
+        settingsWindowController = controller
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func menuRunDiagnostics() {

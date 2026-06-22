@@ -27,12 +27,10 @@ jobs:
           cp .build/release/Click2Chat "$APP/Contents/MacOS/Click2Chat"
           cp scripts/chrome_voice.mjs "$APP/Contents/Resources/chrome_voice.mjs"
           cp Assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-          cp .env.example "$APP/Contents/Resources/.env.example"
           VERSION_NUMBER="${VERSION#v}"
           sed -e "s/__VERSION__/$VERSION_NUMBER/g" packaging/Info.plist > "$APP/Contents/Info.plist"
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          cp .env.example dist/.env.example
           cp scripts/uninstall.sh dist/uninstall.sh
           ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/Click2Chat-${VERSION}.zip"
 
