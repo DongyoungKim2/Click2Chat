@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Assemble ad-hoc signed app
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          APP="dist/Click2Chat.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp .build/release/Click2Chat "$APP/Contents/MacOS/Click2Chat"
+          cp scripts/chrome_voice.mjs "$APP/Contents/Resources/chrome_voice.mjs"
+          cp Assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          cp .env.example "$APP/Contents/Resources/.env.example"
+          VERSION_NUMBER="${VERSION#v}"
+          sed -e "s/__VERSION__/$VERSION_NUMBER/g" packaging/Info.plist > "$APP/Contents/Info.plist"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          cp .env.example dist/.env.example
+          cp scripts/uninstall.sh dist/uninstall.sh
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/Click2Chat-${VERSION}.zip"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" "dist/Click2Chat-${GITHUB_REF_NAME}.zip" --generate-notes --title "Click2Chat ${GITHUB_REF_NAME}"

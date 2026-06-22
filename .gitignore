@@ -1,0 +1,8 @@
+.build/
+.env
+.DS_Store
+*.zip
+*.dmg
+tmp/
+dist/
+Assets/AppIcon.iconset/
